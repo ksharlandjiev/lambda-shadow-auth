@@ -1,0 +1,9 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "shadow-auth"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-1nsra1z6oe0en"
+s3_prefix = "shadow-auth"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"

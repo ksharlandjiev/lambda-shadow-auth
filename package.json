@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "child_process": "^1.0.2",
+    "sha512crypt-node": "^0.1.0"
+  }
+}
