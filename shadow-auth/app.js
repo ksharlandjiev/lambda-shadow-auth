@@ -15,11 +15,8 @@ let response;
  * 
  */
 
-var shadowFile = 'awskamen:$6$8nKhbBww$w1XNyp1XvSkMSMxwu/CFj4/Hmy1CC5v/xsdvHr7HOFhq2818E38hy0max4CkxmAFstR.fqAPhLjOp9xLf533p/:18745:0:99999:7:::';
-
 exports.lambdaHandler = async (event) => {
-console.log('=>', event.password)
-        // const ret = await axios(url);
+        const secret = await fetchSecret("SFTP/"+event.username);
         response = {
             'statusCode': 404,
             'body': JSON.stringify({
@@ -27,21 +24,36 @@ console.log('=>', event.password)
                 // location: ret.data.trim()
             })
         }
-        authResponse= checkPassword(event.username, event.password);
+        const authResponse = await checkPassword(secret, event.username, event.password);
         if(authResponse) {
             response = {
-                authenticated: authResponse,
-                Role: "arn:aws:iam::176341458743:role/AWSTransferFamilyServiceRole",
-                HomeDirectory: "/awskamen-sftp-server/home/"+event.username.trim()
+                authenticated: true,
+                Role: secret.Role,
+                HomeDirectory: secret.HomeDirectory
             }
         }
     return response
 };
+async function fetchSecret(secretName) {
+    var AWS = require('aws-sdk');
 
-function checkPassword(username, password) {
-    var fs = require('fs');
-    file =  fs.readFileSync('./etc/shadow', 'utf8');
+// Create a Secrets Manager client
+var client = new AWS.SecretsManager({
+    region: 'us-east-1'
+});
 
+const result = await client
+  .getSecretValue({
+    SecretId: secretName
+  })
+  .promise();
+  return JSON.parse(result.SecretString);
+}
+
+async function checkPassword(secret, username, password) {
+    // var fs = require('fs');
+    // file =  fs.readFileSync('./etc/shadow', 'utf8');
+    let file = secret.Shadow || "";
     var shadowArray = file.toString().split('\n');
     var passwordHash;
 
@@ -51,6 +63,7 @@ function checkPassword(username, password) {
             passwordHash = shadowLine[1];
         }
     });
+
     if (passwordHash) {
         var shadowSplit = passwordHash.split('$');
         var algorithm = shadowSplit[1];

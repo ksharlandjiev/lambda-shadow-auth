@@ -8,21 +8,203 @@ Description: >
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
-    Timeout: 3
+    Timeout: 15
 
 Resources:
   ShadowAuthFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
       CodeUri: shadow-auth/
+      MemorySize: 256
       Handler: app.lambdaHandler
       Runtime: nodejs12.x
-      Events:
-        ShadowAuthAPI:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-          Properties:
-            Path: /servers/{serverId}/users/{username}/config
-            Method: get
+
+  ShadowAuthFunctionApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ShadowAuthApi
+      Description: API used for GetUserConfig requests
+      FailOnWarnings: true
+      EndpointConfiguration:
+        Types:
+        - REGIONAL
+
+  GetUserConfigLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      FunctionName:
+        Fn::GetAtt: ShadowAuthFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Sub: arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ShadowAuthFunctionApi}/*   
+
+  ApiCloudWatchLogsRole:
+    Description: IAM role used by API Gateway to log API requests to CloudWatch
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: ApiGatewayLogsPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            - logs:GetLogEvents
+            - logs:FilterLogEvents
+            Resource: "*"
+  ApiLoggingAccount:
+    Type: AWS::ApiGateway::Account
+    DependsOn:
+    - ShadowAuthFunctionApi
+    Properties:
+      CloudWatchRoleArn:
+        Fn::GetAtt: ApiCloudWatchLogsRole.Arn   
+
+  ServersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      ParentId:
+        Fn::GetAtt:
+        - ShadowAuthFunctionApi
+        - RootResourceId
+      PathPart: servers
+  ServerIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      ParentId:
+        Ref: ServersResource
+      PathPart: "{serverId}"
+  UsersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      ParentId:
+        Ref: ServerIdResource
+      PathPart: users
+  UserNameResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      ParentId:
+        Ref: UsersResource
+      PathPart: "{username}"
+  GetUserConfigResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      ParentId:
+        Ref: UserNameResource
+      PathPart: config
+  GetUserConfigRequest:
+    Type: AWS::ApiGateway::Method
+    DependsOn: GetUserConfigResponseModel
+    Properties:
+      AuthorizationType: AWS_IAM
+      HttpMethod: GET
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - ":lambda:path/2015-03-31/functions/"
+              - Fn::GetAtt:
+                - ShadowAuthFunction
+                - Arn
+              - "/invocations"
+        IntegrationResponses:
+        - StatusCode: 200
+        RequestTemplates:
+          application/json: |
+            {
+              "username": "$util.urlDecode($input.params('username'))",
+              "password": "$util.escapeJavaScript($input.params('Password')).replaceAll("\\'","'")",
+              "protocol": "$input.params('protocol')",
+              "serverId": "$input.params('serverId')",
+              "sourceIp": "$input.params('sourceIp')"
+            }
+      RequestParameters:
+        method.request.header.Password: false
+        method.request.querystring.protocol: false
+        method.request.querystring.sourceIp: false
+      ResourceId:
+        Ref: GetUserConfigResource
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: UserConfigResponseModel
+  GetUserConfigResponseModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      ContentType: application/json
+      Description: API response for GetUserConfig
+      Name: UserConfigResponseModel
+      Schema:
+        "$schema": http://json-schema.org/draft-04/schema#
+        title: UserUserConfig
+        type: object
+        properties:
+          HomeDirectory:
+            type: string
+          Role:
+            type: string
+          Policy:
+            type: string
+          PublicKeys:
+            type: array
+            items:
+              type: string        
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId:
+        Ref: ApiDeployment202008
+      MethodSettings:
+      - DataTraceEnabled: false
+        HttpMethod: "*"
+        LoggingLevel: INFO
+        ResourcePath: "/*"
+      RestApiId:
+        Ref: ShadowAuthFunctionApi
+      StageName: Prod
+  ApiDeployment202008:
+    DependsOn:
+    - ShadowAuthFunctionApi
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId:
+        Ref: ShadowAuthFunctionApi                        
+            
 
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
@@ -30,4 +212,4 @@ Outputs:
   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
   HelloWorldApi:
     Description: "API Gateway endpoint URL for Prod stage for Hello World function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+    Value: !Sub "https://${ShadowAuthFunctionApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
