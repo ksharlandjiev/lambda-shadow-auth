@@ -22,7 +22,7 @@ Resources:
   ShadowAuthFunctionApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: ShadowAuthApi
+      Name: !Sub ${AWS::StackName}-AuthAPI
       Description: API used for GetUserConfig requests
       FailOnWarnings: true
       EndpointConfiguration:
@@ -210,6 +210,6 @@ Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  HelloWorldApi:
-    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
-    Value: !Sub "https://${ShadowAuthFunctionApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+  AuthAPI:
+    Description: "API Gateway endpoint URL for Prod stage - use this endpoint for AWS Transfer Family identity provider"
+    Value: !Sub "https://${ShadowAuthFunctionApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
